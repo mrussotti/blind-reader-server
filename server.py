@@ -1,6 +1,6 @@
 import os
 import time
-from flask import Flask, request, jsonify
+from flask import Flask, request, jsonify, Response
 from flask_cors import CORS
 from openai import OpenAI
 from dotenv import load_dotenv
@@ -13,7 +13,11 @@ if not OPENAI_API_KEY:
 
 app = Flask(__name__)
 # Allow local dev devices to call the API
-CORS(app, resources={r"/ocr": {"origins": "*"}, r"/healthz": {"origins": "*"}})
+CORS(app, resources={
+    r"/ocr": {"origins": "*"}, 
+    r"/tts": {"origins": "*"}, 
+    r"/healthz": {"origins": "*"}
+})
 
 client = OpenAI(api_key=OPENAI_API_KEY)
 
@@ -73,6 +77,61 @@ def ocr():
     except Exception as e:
         t1 = time.perf_counter()
         print(f"[OCR] ERROR after {round((t1-t0)*1000)} ms: {e}")
+        return jsonify({"error": str(e)}), 500
+
+@app.post("/tts")
+def tts():
+    """
+    Accepts JSON { text: <string>, voice: <optional> }
+    Returns streaming audio (MP3)
+    Voice options: alloy, echo, fable, onyx, nova, shimmer
+    """
+    ip = request.access_route[0] if request.access_route else request.remote_addr
+    t0 = time.perf_counter()
+
+    payload = request.get_json(silent=True) or {}
+    text = payload.get("text", "").strip()
+    voice = payload.get("voice", "nova")  # nova is a warm female voice
+    
+    print(f"[TTS] from {ip} text_len={len(text)} voice={voice}")
+
+    if not text:
+        return jsonify({"error": "Missing 'text' in body"}), 400
+
+    # Validate voice
+    valid_voices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
+    if voice not in valid_voices:
+        voice = "nova"
+
+    try:
+        # Generate speech using OpenAI TTS
+        response = client.audio.speech.create(
+            model="tts-1",  # tts-1 is faster, tts-1-hd is higher quality
+            voice=voice,
+            input=text,
+            response_format="mp3"
+        )
+        
+        t1 = time.perf_counter()
+        print(f"[TTS] -> Generated in {round((t1-t0)*1000)} ms")
+        
+        # Stream the audio response
+        def generate():
+            for chunk in response.iter_bytes(chunk_size=4096):
+                yield chunk
+        
+        return Response(
+            generate(),
+            mimetype="audio/mpeg",
+            headers={
+                "Content-Type": "audio/mpeg",
+                "Cache-Control": "no-cache"
+            }
+        )
+        
+    except Exception as e:
+        t1 = time.perf_counter()
+        print(f"[TTS] ERROR after {round((t1-t0)*1000)} ms: {e}")
         return jsonify({"error": str(e)}), 500
 
 if __name__ == "__main__":
