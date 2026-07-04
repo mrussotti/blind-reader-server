@@ -1,5 +1,9 @@
 fastapi>=0.115,<1.0
 uvicorn[standard]>=0.30,<1.0
+# gunicorn + a2wsgi: only so Render's legacy v1 start command
+# (gunicorn server:app) can serve the ASGI app without a dashboard change
+gunicorn>=22.0
+a2wsgi>=1.10
 anthropic>=0.80
 openai>=1.55,<2.0
 pillow>=10
